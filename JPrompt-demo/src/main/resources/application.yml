@@ -1,0 +1,16 @@
+prompt:
+  locations:
+    - "classpath*:prompts/**/*.yaml"
+    - "classpath*:prompts/**/*.md"
+    - "file:./prompts/*.yaml"
+
+# Actuator 配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "metrics,health" # 暴露 /actuator/metrics
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true

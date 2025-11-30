@@ -1,0 +1,23 @@
+# 1. 简单测试
+hello:
+  template: "Hello {{name}}, welcome back!"
+
+# 2. 复杂对象测试 (Mustache 语法)
+order_analysis:
+  model: gpt-4
+  template: |
+    Role: AI Assistant
+    Task: Analyze order {{order.id}}
+    
+    User Profile:
+    - Name: {{order.user.name}}
+    - VIP Status: {{#order.user.isVip}}YES (High Priority){{/order.user.isVip}}{{^order.user.isVip}}NO (Standard){{/order.user.isVip}}
+    
+    Order Items:
+    {{#order.items}}
+    - {{.}}
+    {{/order.items}}
+    
+    Total: ${{order.totalPrice}}
+    
+    Please provide a brief summary for the shipping department.
