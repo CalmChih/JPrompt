@@ -136,19 +136,31 @@ public class FilePromptSource implements PromptSource {
             return;
         }
         
+        String cacheKey = file.getAbsolutePath();
+        
+        // 文件被删除
+        if (!file.exists()) {
+            if (resourceCache.containsKey(cacheKey)) {
+                log.info("File deleted, removing from cache: {}", cacheKey);
+                resourceCache.remove(cacheKey);
+            }
+            return;
+        }
+        
+        // Case 2 & 3: 文件存在，尝试解析
         try {
-            log.info("Incremental reload for file: {}", file.getAbsolutePath());
+            log.debug("Reloading file: {}", cacheKey);
             Map<String, PromptMeta> loaded = parseFile(file);
             
             if (loaded != null) {
                 // 校验
                 loaded.values().forEach(PromptMeta::validate);
                 // 更新缓存
-                resourceCache.put(file.getAbsolutePath(), loaded);
+                resourceCache.put(cacheKey, loaded);
             }
         } catch (Exception e) {
-            log.error("Failed to reload file: {}", file.getAbsolutePath(), e);
-            // 注意：不清除旧缓存，保持服务可用性
+            // Failure: Log error but DO NOT remove from cache (Stale-If-Error)
+            log.error("Failed to reload file: {}. Keeping stale data.", cacheKey, e);
         }
     }
     
@@ -222,6 +234,11 @@ public class FilePromptSource implements PromptSource {
             buffer.write(data, 0, nRead);
         }
         String content = buffer.toString(StandardCharsets.UTF_8);
+        
+        // 稳定性治理：移除 UTF-8 BOM 头 (\uFEFF)
+        if (content.startsWith("\uFEFF")) {
+            content = content.substring(1);
+        }
         
         // 统一换行符
         content = content.replace("\r\n", "\n");

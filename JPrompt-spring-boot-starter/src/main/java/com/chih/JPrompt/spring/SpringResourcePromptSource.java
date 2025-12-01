@@ -117,19 +117,22 @@ public class SpringResourcePromptSource implements PromptSource, DisposableBean 
      * 单个资源加载逻辑 (复用于首次加载和热更新)
      */
     private void loadAndCacheResource(Resource resource) {
+        String cacheKey = getResourceCacheKey(resource);
+        // 获取资源名称用于错误展示 (更友好的名字)
+        String resourceName = getResourceName(resource);
+        
+        // 资源被删除
         if (!resource.exists()) {
+            if (resourceCache.containsKey(cacheKey)) {
+                log.info("Resource deleted, removing from cache: {}", resourceName);
+                resourceCache.remove(cacheKey);
+                // 如果之前有错误，现在文件没了，错误也该消除了
+                loadErrors.remove(resourceName);
+            }
             return;
         }
         
-        String resourceName = resource.getDescription();
         try {
-            if (isFileResource(resource)) {
-                resourceName = resource.getFile().getAbsolutePath();
-            }
-        } catch (Exception ignored) {}
-        
-        try {
-            String cacheKey = getResourceCacheKey(resource);
             Map<String, PromptMeta> loaded = parseResource(resource);
             
             if (loaded != null && !loaded.isEmpty()) {
@@ -145,9 +148,21 @@ public class SpringResourcePromptSource implements PromptSource, DisposableBean 
                 }
             }
         } catch (Exception e) {
-            log.error("Error loading prompt file: {}", resource.getDescription(), e);
+            // Failure: Log & Record error, BUT keep stale cache
+            log.error("Error loading prompt file: {}. Keeping stale data.", resourceName, e);
             // 记录错误
             loadErrors.put(resourceName, e);
+        }
+    }
+    
+    private String getResourceName(Resource resource) {
+        try {
+            if (isFileResource(resource)) {
+                return resource.getFile().getAbsolutePath();
+            }
+            return resource.getDescription();
+        } catch (Exception e) {
+            return resource.toString();
         }
     }
     
@@ -185,6 +200,12 @@ public class SpringResourcePromptSource implements PromptSource, DisposableBean 
     
     private Map<String, PromptMeta> parseMarkdownStream(InputStream is, String filename) throws IOException {
         String content = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
+        
+        // 稳定性治理：移除 UTF-8 BOM 头 (\uFEFF)
+        if (content.startsWith("\uFEFF")) {
+            content = content.substring(1);
+        }
+        
         // 统一换行符
         content = content.replace("\r\n", "\n");
         
