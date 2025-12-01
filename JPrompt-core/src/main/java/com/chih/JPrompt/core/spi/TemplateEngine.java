@@ -1,6 +1,7 @@
 package com.chih.JPrompt.core.spi;
 
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * 模板引擎 SPI 接口
@@ -14,12 +15,12 @@ public interface TemplateEngine {
     
     /**
      * 1. 编译阶段：将字符串模板编译为可执行对象
-     * (在 PromptManager reload 时调用)
      *
      * @param template 原始模板字符串
-     * @return 编译后的对象 (如 Mustache 对象)，由具体实现决定类型
+     * @param partialLoader 子模板加载器 (输入子模板名称，返回子模板内容)。如果为 null，则不支持子模板。
+     * @return 编译后的对象
      */
-    Object compile(String template);
+    Object compile(String template, Function<String, String> partialLoader);
     
     /**
      * 2. 执行阶段：使用编译好的对象进行渲染

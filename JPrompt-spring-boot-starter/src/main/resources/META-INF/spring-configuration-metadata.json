@@ -1,0 +1,28 @@
+{
+  "groups": [
+    {
+      "name": "j-prompt",
+      "type": "com.chih.JPrompt.spring.JPromptProperties",
+      "sourceType": "com.chih.JPrompt.spring.JPromptProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "j-prompt.locations",
+      "type": "java.util.List<java.lang.String>",
+      "description": "扫描路径列表。支持 classpath: (只读) 和 file: (支持热更新)。",
+      "sourceType": "com.chih.JPrompt.spring.JPromptProperties"
+    },
+    {
+      "name": "j-prompt.debounce-millis",
+      "type": "java.lang.Long",
+      "description": "热更新防抖延迟 (毫秒)。避免编辑器保存时触发多次重载。",
+      "sourceType": "com.chih.JPrompt.spring.JPromptProperties",
+      "defaultValue": 500
+    }
+  ],
+  "hints": [],
+  "ignored": {
+    "properties": []
+  }
+}

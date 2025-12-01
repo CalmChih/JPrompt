@@ -1,0 +1,4 @@
+invalid_yaml:
+  model: gpt-3.5
+  template: | 
+   {{hah123123a}}

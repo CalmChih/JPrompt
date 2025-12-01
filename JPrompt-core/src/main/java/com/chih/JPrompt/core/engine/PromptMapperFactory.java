@@ -76,7 +76,9 @@ public class PromptMapperFactory {
             // Case B: 返回 PromptMeta (返回完整对象，包含 model 等参数)
             if (returnType.equals(PromptMeta.class)) {
                 PromptMeta original = manager.getMeta(promptAnno.value());
-                if (original == null) return null;
+                if (original == null) {
+                    return null;
+                }
                 
                 // 拷贝一份对象，避免修改缓存
                 PromptMeta result = new PromptMeta();

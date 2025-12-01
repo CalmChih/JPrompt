@@ -24,10 +24,14 @@
 - **📝 多格式支持**：
   - `.yaml`: 适合集中管理短文本提示词。
   - `.md` (Markdown): 支持 **FrontMatter** 元数据，适合编写包含代码块、Few-Shot 示例的复杂 Prompt。
-- **🧠 高级模板引擎**：内置 Mustache 引擎，支持对象属性访问 (`{{user.name}}`)、列表循环、逻辑判断。
-- **📊 可观测性 (Observability)**：自动适配 **Micrometer**。如果环境中有 Actuator，自动暴露 `jprompt.render.timer` 和 `jprompt.render.count` 监控指标。
+- **🧠 高级模板引擎**：
+  - 内置 Mustache 引擎，支持对象属性访问 (`{{user.name}}`)、列表循环、逻辑判断。
+  - 支持 **子模板 (Partials)**：使用 `{{> common/header}}` 复用公共 Prompt 片段。
+- **📊 可观测性 (Observability)**：
+  - **Metrics**: 自动适配 Micrometer，暴露 `jprompt.render.timer` 和 `jprompt.render.count` 指标。
+  - **Health Check**: 集成 Spring Boot Actuator，当 Prompt 文件解析失败时自动标记服务状态为 DOWN，并暴露具体错误文件列表。
 - **🛡 生产级健壮性**：
-  - **Fail-Fast**: 启动时校验配置，发现错误直接阻止启动，防止带病上线。
+  - **Fail-Fast**: 启动时校验配置，发现错误直接阻止启动。
   - **Copy-On-Write**: 核心缓存采用写时复制机制，确保高并发下的读取绝对安全。
   - **完整异常体系**: 提供 `PromptNotFoundException`, `PromptParseException` 等精确异常。
 
@@ -81,6 +85,8 @@ hello_user:
 id: code_review
 model: gpt-4
 temperature: 0.2
+# 任意自定义参数
+top_p: 0.9
 ---
 You are a Senior Java Architect.
 Please review the following code:
@@ -108,14 +114,14 @@ public interface MyAiMapper {
 ```java
 @Service
 public class MyService {
-  @Autowired
-  private MyAiMapper aiMapper;
+    @Autowired
+    private MyAiMapper aiMapper;
 
-  public void run() {
-    String prompt = aiMapper.sayHello("Developer");
-    System.out.println(prompt);
-    // Output: Hello Developer, welcome to JPrompt!
-  }
+    public void run() {
+        String prompt = aiMapper.sayHello("Developer");
+        System.out.println(prompt);
+        // Output: Hello Developer, welcome to JPrompt!
+    }
 }
 ```
 
@@ -136,13 +142,23 @@ prompt:
     - "file:./config/prompts/*.md"
 ```
 
-### 监控指标 (Metrics)
-如果引入了 `spring-boot-starter-actuator`，JPrompt 会自动暴露以下 Metrics：
+### 运维监控 (Ops)
 
-- `jprompt.render.timer`: 渲染耗时 (Timer)
-- `jprompt.render.count`: 调用次数 (Counter)
+**Metrics (Prometheus/Grafana)**:
+- `jprompt.render.timer`: 渲染耗时
+- `jprompt.render.count`: 调用次数
 
-Tag 包含 `prompt` (key) 和 `result` (success/failure)。
+**Health Check (/actuator/health)**:
+如果部分 Prompt 文件解析失败，健康状态将变为 `DOWN`，并显示错误详情：
+```json
+"jPrompt": {
+    "status": "DOWN",
+    "details": {
+        "message": "Some prompt files failed to load.",
+        "errors": { "bad.yaml": "Syntax Error..." }
+    }
+}
+```
 
 ---
 
@@ -151,7 +167,7 @@ Tag 包含 `prompt` (key) 和 `result` (success/failure)。
 项目采用 Maven 多模块架构：
 
 - **JPrompt-core**: 核心引擎。包含注解、SPI 接口、Mustache 实现、异常体系。**零 Spring 依赖**。
-- **JPrompt-spring-boot-starter**: Spring 集成层。实现自动配置、资源扫描、NIO 热更新监听、Micrometer 适配。
+- **JPrompt-spring-boot-starter**: Spring 集成层。实现自动配置、资源扫描、NIO 热更新监听、Micrometer 适配、Health Indicator。
 - **JPrompt-demo**: 示例项目。
 
 ### SPI 扩展能力
@@ -166,10 +182,11 @@ JPrompt 允许你替换核心组件：
 
 - [x] SPI 核心架构与并发安全
 - [x] Spring Boot Starter & 自动扫描
-- [x] Mustache 模板引擎集成
+- [x] Mustache 模板引擎集成 (支持 Partials)
 - [x] Markdown (FrontMatter) 格式支持
-- [x] 高性能文件热更新 (NIO + 防抖)
+- [x] 高性能文件热更新 (NIO + 防抖 + 增量)
 - [x] Micrometer 可观测性集成
+- [x] Health Check 健康检查集成
 - [x] 核心单元测试与异常体系
 - [ ] 发布至 Maven Central
 - [ ] 支持更多模板引擎扩展包 (Freemarker 等)

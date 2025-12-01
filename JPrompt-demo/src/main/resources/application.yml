@@ -1,4 +1,4 @@
-prompt:
+j-prompt:
   locations:
     - "classpath*:prompts/**/*.yaml"
     - "classpath*:prompts/**/*.md"
@@ -10,6 +10,9 @@ management:
     web:
       exposure:
         include: "metrics,health" # 暴露 /actuator/metrics
+  endpoint:
+    health:
+      show-details: always
   metrics:
     distribution:
       percentiles-histogram:

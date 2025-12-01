@@ -21,3 +21,14 @@ order_analysis:
     Total: ${{order.totalPrice}}
     
     Please provide a brief summary for the shipping department.
+
+# 公共头部
+common_header:
+  template: "System: You are a helpful assistant named {{assistantName}}.\n"
+
+# 引用头部的 Prompt
+chat_with_header:
+  model: gpt-3.5
+  template: |
+    {{> common_header}}
+    User: {{input}}

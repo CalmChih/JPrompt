@@ -1,7 +1,12 @@
 package com.chih.JPrompt.core.domain;
 
+import com.fasterxml.jackson.annotation.JsonAnyGetter;
+import com.fasterxml.jackson.annotation.JsonAnySetter;
+
 import java.io.Serial;
 import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 提示词元数据配置类
@@ -58,6 +63,12 @@ public class PromptMeta implements Serializable {
      */
     private String description;
     
+    /**
+     * 扩展参数集合
+     * 用于存储 YAML 中定义但 PromptMeta 未显式声明的字段 (如 top_p, presence_penalty)
+     */
+    private final Map<String, Object> extensions = new HashMap<>();
+    
     // =======================================================
     // 构造函数 (Constructors)
     // =======================================================
@@ -79,6 +90,34 @@ public class PromptMeta implements Serializable {
         this.timeout = timeout;
         this.template = template;
         this.description = description;
+    }
+    
+    // =======================================================
+    // 动态扩展支持 (Jackson Magic)
+    // =======================================================
+    
+    /**
+     * 捕获所有未映射的 YAML 属性
+     */
+    @JsonAnySetter
+    public void addExtension(String key, Object value) {
+        this.extensions.put(key, value);
+    }
+    
+    /**
+     * 序列化时将扩展属性平铺输出
+     */
+    @JsonAnyGetter
+    public Map<String, Object> getExtensions() {
+        return extensions;
+    }
+    
+    /**
+     * 获取扩展参数 (类型安全辅助方法)
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T getExtension(String key) {
+        return (T) extensions.get(key);
     }
     
     /**

@@ -21,6 +21,7 @@ public class DemoApplication {
     @Bean
     public CommandLineRunner demoRunner(DemoMapper mapper) {
         return args -> {
+            System.out.println("当前运行目录: " + System.getProperty("user.dir"));
             System.out.println("====== JPrompt Demo Start ======");
             
             // --- 测试 1: 简单字符串渲染 ---
@@ -56,8 +57,6 @@ public class DemoApplication {
             // 1. 检查 VIP 是否显示为 "YES (High Priority)"
             // 2. 检查 Items 是否被循环打印出来了
             
-            System.out.println("====== JPrompt Demo End ======");
-            
             System.out.println("\n[Test 3] Markdown Format Test:");
             String codeSnippet = "public static Map cache = new HashMap();"; // 典型的内存泄漏代码
             String reviewResult = mapper.reviewCode(codeSnippet);
@@ -65,6 +64,13 @@ public class DemoApplication {
             System.out.println("---------------------------------------------");
             System.out.println(reviewResult);
             System.out.println("---------------------------------------------");
+            
+            System.out.println("\n[Test 4] Chat with header:");
+            String botResponse = mapper.chat("JPrompt", "Hi, who are you?");
+            System.out.println(botResponse);
+            
+            
+            System.out.println("====== JPrompt Demo End ======");
         };
     }
 }

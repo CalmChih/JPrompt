@@ -12,7 +12,7 @@ import java.util.Map;
  * @author lizhiyuan
  * @since 2025/11/30
  */
-public interface PromptSource {
+public interface PromptSource extends AutoCloseable{
     
     /**
      * 加载所有的 Prompt 配置
@@ -26,4 +26,13 @@ public interface PromptSource {
      * @param callback 回调函数
      */
     void onChange(Runnable callback);
+    
+    /**
+     * 关闭资源 (如线程池、WatchService 连接)
+     * 默认空实现，方便简单实现类
+     */
+    @Override
+    default void close() throws Exception {
+        // Default no-op
+    }
 }

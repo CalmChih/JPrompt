@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SpringResourcePromptSourceTest {
 
     // 只需要测试解析逻辑，不需要启动 Watcher
-    private final SpringResourcePromptSource source = new SpringResourcePromptSource(List.of());
+    private final SpringResourcePromptSource source = new SpringResourcePromptSource(List.of(), 500);
 
     @Test
     void testParseMarkdownWithFrontMatter() throws Exception {

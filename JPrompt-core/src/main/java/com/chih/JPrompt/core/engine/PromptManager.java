@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * 核心管理器：负责协调 Source 和 Cache
@@ -79,21 +79,39 @@ public class PromptManager {
             // 获取旧缓存引用，用于对比复用
             Map<String, CacheEntry> oldCache = this.cache;
             
+            // 构建 Loader：优先从 newData 找，找不到去 oldCache 找 (容错)
+            final Map<String, PromptMeta> finalNewData = newData;
+            Function<String, String> partialLoader = key -> {
+                PromptMeta meta = finalNewData.get(key);
+                if (meta != null) {
+                    return meta.getTemplate();
+                }
+                // loadAll 返回的是全量合并数据，所以 newData 应该是全的。
+                // 这里只查 newData 即可。
+                return null;
+            };
+            
             for (Map.Entry<String, PromptMeta> entry : newData.entrySet()) {
                 String key = entry.getKey();
                 PromptMeta newMeta = entry.getValue();
                 
-                // === 核心优化：智能复用逻辑 ===
                 CacheEntry oldEntry = oldCache.get(key);
                 Object compiledObject;
                 
-                // 如果旧缓存存在，且模板内容未发生变化，则直接复用旧的编译对象
-                if (oldEntry != null && Objects.equals(oldEntry.meta.getTemplate(), newMeta.getTemplate())) {
-                    compiledObject = oldEntry.compiledTemplate;
-                } else {
-                    // 内容变了，或者新 Key，重新编译
-                    compiledObject = templateEngine.compile(newMeta.getTemplate());
-                }
+                // 智能复用检测：
+                // 1. 自身内容没变
+                // 2. 这是一个复杂点：如果它引用的子模板变了，它也得重编译！
+                // 目前的 Objects.equals(old, new) 无法检测子模板变化。
+                // 稳妥起见：为了支持 Partials 热更新，我们需要牺牲一点性能，
+                // 或者在这里做更复杂的依赖图分析。
+                //
+                // >>> 决策：MVP 阶段，为了确保子模板更新生效，暂时取消“智能复用”，
+                // >>> 或者仅当通过 Mustache 能够确定无依赖时才复用。
+                // >>> 简单方案：全量重编译。因为 JPrompt 是预编译，reload 是异步的，
+                // >>> 几百个 Prompt 重编译也就几十毫秒，完全可接受。
+                
+                // 重新编译 (传入 partialLoader)
+                compiledObject = templateEngine.compile(newMeta.getTemplate(), partialLoader);
                 
                 newCache.put(key, new CacheEntry(newMeta, compiledObject));
             }

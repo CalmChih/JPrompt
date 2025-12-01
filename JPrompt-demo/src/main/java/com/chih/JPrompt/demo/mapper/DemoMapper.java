@@ -17,4 +17,7 @@ public interface DemoMapper {
     
     @Prompt("code_review")
     String reviewCode(@Param("code") String code);
+    
+    @Prompt("chat_with_header")
+    String chat(@Param("assistantName") String botName, @Param("input") String msg);
 }

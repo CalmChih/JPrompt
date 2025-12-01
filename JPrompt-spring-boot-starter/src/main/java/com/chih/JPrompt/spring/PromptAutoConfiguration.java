@@ -7,11 +7,13 @@ import com.chih.JPrompt.core.impl.NoOpPromptMetrics;
 import com.chih.JPrompt.core.spi.PromptMetrics;
 import com.chih.JPrompt.core.spi.PromptSource;
 import com.chih.JPrompt.core.spi.TemplateEngine;
+import com.chih.JPrompt.spring.health.JPromptHealthIndicator;
 import com.chih.JPrompt.spring.metrics.MicrometerPromptMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -22,14 +24,14 @@ import org.springframework.context.annotation.Configuration;
  * @since 2025/11/30
  */
 @Configuration
-@EnableConfigurationProperties(PromptProperties.class)
+@EnableConfigurationProperties(JPromptProperties.class)
 public class PromptAutoConfiguration {
     
     @Bean
     @ConditionalOnMissingBean(PromptSource.class)
-    public PromptSource promptSource(PromptProperties properties) {
+    public PromptSource promptSource(JPromptProperties properties) {
         // 使用支持 Spring Resource 和热更新的 Source
-        return new SpringResourcePromptSource(properties.getLocations());
+        return new SpringResourcePromptSource(properties.getLocations(), properties.getDebounceMillis());
     }
     
     @Bean
@@ -74,5 +76,27 @@ public class PromptAutoConfiguration {
     @ConditionalOnMissingBean(PromptMapperFactory.class)
     public PromptMapperFactory promptMapperFactory(PromptManager manager) {
         return new PromptMapperFactory(manager);
+    }
+    
+    /**
+     * 健康检查自动配置
+     * 只有当引入了 Actuator (存在 HealthIndicator 类) 时才生效
+     */
+    @Configuration
+    @ConditionalOnClass(HealthIndicator.class)
+    static class HealthCheckConfiguration {
+        
+        @Bean
+        @ConditionalOnMissingBean(name = "jPromptHealthIndicator")
+        public JPromptHealthIndicator jPromptHealthIndicator(PromptSource source) { // 1. 改为注入接口
+            
+            // 2. 检查：只有当实现类是我们提供的 SpringResourcePromptSource 时，才启用健康检查
+            if (source instanceof SpringResourcePromptSource) {
+                return new JPromptHealthIndicator((SpringResourcePromptSource) source);
+            }
+            
+            // 3. 如果用户自定义了 PromptSource（不支持 getLoadErrors），则不注册此 Bean (返回 null 是合法的)
+            return null;
+        }
     }
 }

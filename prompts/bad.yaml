@@ -1,0 +1,5 @@
+chat_with_header:
+  model: gpt-3.5
+  template: |
+    {{> common_header}}
+    User: {{input}}

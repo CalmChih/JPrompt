@@ -9,8 +9,8 @@ import java.util.List;
  * @author lizhiyuan
  * @since 2025/11/30 21:21
 */
-@ConfigurationProperties(prefix = "prompt")
-public class PromptProperties {
+@ConfigurationProperties(prefix = "j-prompt")
+public class JPromptProperties {
     
     /**
      * 扫描路径列表
@@ -18,7 +18,13 @@ public class PromptProperties {
      */
     private List<String> locations = new ArrayList<>();
     
-    public PromptProperties() {
+    /**
+     * 热更新防抖延迟 (毫秒)
+     * 避免编辑器保存时触发多次重载
+     */
+    private long debounceMillis = 500;
+    
+    public JPromptProperties() {
         // 1. 默认约定：扫描 classpath 下 prompts 目录的所有 yaml
         locations.add("classpath*:prompts/**/*.yaml");
         locations.add("classpath*:prompts/**/*.yml");
@@ -38,5 +44,13 @@ public class PromptProperties {
 
     public void setLocations(List<String> locations) {
         this.locations = locations;
+    }
+    
+    public long getDebounceMillis() {
+        return debounceMillis;
+    }
+    
+    public void setDebounceMillis(long debounceMillis) {
+        this.debounceMillis = debounceMillis;
     }
 }
