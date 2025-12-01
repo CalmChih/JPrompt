@@ -111,7 +111,7 @@ public class PromptManager {
                 // >>> 几百个 Prompt 重编译也就几十毫秒，完全可接受。
                 
                 // 重新编译 (传入 partialLoader)
-                compiledObject = templateEngine.compile(newMeta.getTemplate(), partialLoader);
+                compiledObject = templateEngine.compile(newMeta.getTemplate(), key, partialLoader);
                 
                 newCache.put(key, new CacheEntry(newMeta, compiledObject));
             }

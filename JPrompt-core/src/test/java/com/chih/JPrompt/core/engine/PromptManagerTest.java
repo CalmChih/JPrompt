@@ -16,6 +16,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -32,22 +33,26 @@ class PromptManagerTest {
     @Mock private PromptMetrics promptMetrics;
 
     private PromptManager promptManager;
-
+    
     @BeforeEach
     void setUp() {
-        // 模拟 source 加载数据
+        // 1. 模拟 source 加载数据
         PromptMeta meta = new PromptMeta();
         meta.setTemplate("Hello {{name}}");
         when(promptSource.loadAll()).thenReturn(Map.of("test_key", meta));
         
-        // 初始化 Manager (会触发一次 loadAll)
+        // 2. 关键修复：Compile 是在构造函数中调用的，必须在这里 Mock
+        // 模拟编译返回一个假对象 "COMPILED_OBJ"
+        when(templateEngine.compile(anyString(), anyString(), any())).thenReturn("COMPILED_OBJ");
+        
+        // 3. 初始化 Manager (这一步会调用 reload -> compile)
         promptManager = new PromptManager(promptSource, templateEngine, promptMetrics);
     }
-
+    
     @Test
     void testGetAndRenderSuccess() {
-        when(templateEngine.render(anyString(), anyMap())).thenReturn("Hello Java");
-
+        when(templateEngine.render(eq("COMPILED_OBJ"), anyMap())).thenReturn("Hello Java");
+        
         String result = promptManager.render("test_key", Map.of("name", "Java"));
 
         assertThat(result).isEqualTo("Hello Java");
@@ -85,9 +90,9 @@ class PromptManagerTest {
         
         // 如果不想改生产代码，我们可以用反射暴力调用 reload (仅限测试)
         try {
-            var method = PromptManager.class.getDeclaredMethod("reload");
+            var method = PromptManager.class.getDeclaredMethod("reload", boolean.class);
             method.setAccessible(true);
-            method.invoke(promptManager);
+            method.invoke(promptManager, false);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
