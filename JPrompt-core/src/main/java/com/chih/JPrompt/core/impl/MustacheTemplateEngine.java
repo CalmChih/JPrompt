@@ -2,6 +2,7 @@ package com.chih.JPrompt.core.impl;
 
 import com.chih.JPrompt.core.exception.TemplateRecursionException;
 import com.chih.JPrompt.core.exception.TemplateRenderException;
+import com.chih.JPrompt.core.spi.CompiledPrompt;
 import com.chih.JPrompt.core.spi.TemplateEngine;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
@@ -28,7 +29,7 @@ public class MustacheTemplateEngine implements TemplateEngine {
     private static final Logger log = LoggerFactory.getLogger(MustacheTemplateEngine.class);
     
     @Override
-    public Object compile(String template, String rootId, Function<String, String> partialLoader) {
+    public CompiledPrompt compile(String template, String rootId, Function<String, String> partialLoader) {
         if (template == null) {
             return null;
         }
@@ -36,7 +37,9 @@ public class MustacheTemplateEngine implements TemplateEngine {
             // 每次编译创建一个临时的 Factory，绑定当前的 partialLoader
             // 虽然创建 Factory 有开销，但 JPrompt 是预编译模式（只在 reload 时发生），这点开销可忽略
             JPromptMustacheFactory mf = new JPromptMustacheFactory(rootId, partialLoader);
-            return mf.compile(new StringReader(template), rootId);
+            Mustache mustache = mf.compile(new StringReader(template), rootId);
+            // 返回编译对象 + 捕获到的依赖集合
+            return new CompiledPrompt(mustache, mf.getRecordedDependencies());
         } catch (Exception e) {
             log.error("Failed to compile mustache template: {}", rootId, e);
             throw e;
@@ -67,6 +70,8 @@ public class MustacheTemplateEngine implements TemplateEngine {
         private final Function<String, String> partialLoader;
         // 用于检测循环引用：记录本次编译链路中涉及的所有 Prompt ID
         private final Set<String> visiting = new HashSet<>();
+        // *** 核心：记录编译期遇到的所有引用 ***
+        private final Set<String> recordedDependencies = new HashSet<>();
         
         public JPromptMustacheFactory(String rootId, Function<String, String> partialLoader) {
             this.partialLoader = partialLoader;
@@ -84,7 +89,12 @@ public class MustacheTemplateEngine implements TemplateEngine {
                         String.format("Circular reference detected! Prompt '%s' is referenced recursively.", resourceName)
                 );
             }
-            // 2. 加载内容
+            
+            // 2. *** 记录依赖 ***
+            // Mustache 调用此方法说明模板中出现了 {{> resourceName}}
+            recordedDependencies.add(resourceName);
+            
+            // 3. 加载内容
             // 当 Mustache 解析到 {{> resourceName}} 时会调用此方法
             if (partialLoader != null) {
                 String content = partialLoader.apply(resourceName);
@@ -107,6 +117,10 @@ public class MustacheTemplateEngine implements TemplateEngine {
             }
             // 如果找不到，返回 null (Mustache 会抛出 TemplateNotFoundException)
             return null;
+        }
+        
+        public Set<String> getRecordedDependencies() {
+            return recordedDependencies;
         }
     }
 }

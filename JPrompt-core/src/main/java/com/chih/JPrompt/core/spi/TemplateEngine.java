@@ -19,7 +19,7 @@ public interface TemplateEngine {
      * @param partialLoader 子模板加载器 (输入子模板名称，返回子模板内容)。如果为 null，则不支持子模板。
      * @return 编译后的对象
      */
-    Object compile(String template, String rootId, Function<String, String> partialLoader);
+    CompiledPrompt compile(String template, String rootId, Function<String, String> partialLoader);
     
     /**
      * 2. 执行阶段：使用编译好的对象进行渲染 (在 render 时调用，无锁、无Map查找)

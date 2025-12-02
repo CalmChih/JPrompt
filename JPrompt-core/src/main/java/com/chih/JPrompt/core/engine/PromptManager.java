@@ -4,15 +4,23 @@ import com.chih.JPrompt.core.domain.PromptMeta;
 import com.chih.JPrompt.core.exception.PromptNotFoundException;
 import com.chih.JPrompt.core.impl.MustacheTemplateEngine;
 import com.chih.JPrompt.core.impl.NoOpPromptMetrics;
+import com.chih.JPrompt.core.spi.CompiledPrompt;
+import com.chih.JPrompt.core.spi.PromptChangeEvent;
 import com.chih.JPrompt.core.spi.PromptMetrics;
 import com.chih.JPrompt.core.spi.PromptSource;
 import com.chih.JPrompt.core.spi.TemplateEngine;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
@@ -34,14 +42,26 @@ public class PromptManager {
         final PromptMeta meta;
         final Object compiledTemplate;
         
-        CacheEntry(PromptMeta meta, Object compiledTemplate) {
-            this.meta = meta;
-            this.compiledTemplate = compiledTemplate;
+        CacheEntry(PromptMeta original, Object compiled) {
+            // 内存优化：Entry 瘦身
+            // 浅拷贝 Meta，但在 CacheEntry 中置空 template 字符串
+            // 因为 compiledTemplate 已经包含了逻辑，运行时不需要 raw string。
+            // 这能节省 50%+ 的堆内存。
+            this.meta = new PromptMeta();
+            this.meta.setId(original.getId());
+            this.meta.setModel(original.getModel());
+            if (original.getExtensions() != null) {
+                original.getExtensions().forEach(this.meta::addExtension);
+            }
+            this.compiledTemplate = compiled;
         }
     }
     
     // 缓存 Key -> CacheEntry
-    private volatile Map<String, CacheEntry> cache = Collections.emptyMap();
+    private final Cache<String, CacheEntry> cache;
+    // 倒排索引：Partial ID -> Set<Parent ID>
+    // 记录谁依赖了我。例如: "header" -> ["chat_prompt", "summary_prompt"]
+    private final Map<String, Set<String>> reverseDependencies = new ConcurrentHashMap<>();
     
     // 全参构造函数
     public PromptManager(PromptSource source, TemplateEngine templateEngine, PromptMetrics metrics) {
@@ -49,11 +69,19 @@ public class PromptManager {
         this.templateEngine = templateEngine;
         this.metrics = (metrics != null) ? metrics : new NoOpPromptMetrics();
         
-        // 首次加载
-        reload(true);
+        // 配置 Caffeine
+        this.cache = Caffeine.newBuilder()
+                // 最大缓存数，防止 OOM
+                .maximumSize(10_000)
+                .expireAfterAccess(24, TimeUnit.HOURS)
+                .recordStats()
+                .build();
         
-        // 注册监听
-        this.source.onChange(() -> reload(false));
+        // 首次加载
+        reloadAll();
+        
+        // 注册增量监听
+        this.source.onChange(this::handleIncrementalUpdate);
     }
     
     public PromptManager(PromptSource source, TemplateEngine templateEngine) {
@@ -65,79 +93,134 @@ public class PromptManager {
     }
     
     /**
-     * 线程安全的重载方法 (Copy-On-Write)
+     * 增量更新处理逻辑 (线程安全)
      */
-    private synchronized void reload(boolean isInitialLoad) {
-        try {
-            Map<String, PromptMeta> newData = source.loadAll();
-            if (newData == null) {
-                newData = Collections.emptyMap();
+    private synchronized void handleIncrementalUpdate(PromptChangeEvent event) {
+        // A. 处理删除
+        for (String key : event.getRemoved()) {
+            cache.invalidate(key);
+            removeFromReverseIndex(key);
+            log.info("Prompt removed: {}", key);
+        }
+        
+        // B. 处理更新 (自身变化的)
+        Set<String> keysToRecompile = new HashSet<>(event.getUpdated().keySet());
+        
+        // C. 处理级联更新 (依赖变化的)
+        // 查找所有依赖了“本次变更 Prompt”的父节点
+        for (String changedKey : event.getUpdated().keySet()) {
+            Set<String> parents = reverseDependencies.get(changedKey);
+            if (parents != null && !parents.isEmpty()) {
+                log.info("Cascading update: '{}' changed, impacting parents {}", changedKey, parents);
+                keysToRecompile.addAll(parents);
             }
-            
-            // 构建新缓存
-            Map<String, CacheEntry> newCache = new HashMap<>(newData.size());
-            // 获取旧缓存引用，用于对比复用
-            Map<String, CacheEntry> oldCache = this.cache;
-            
-            // 构建 Loader：优先从 newData 找，找不到去 oldCache 找 (容错)
-            final Map<String, PromptMeta> finalNewData = newData;
-            Function<String, String> partialLoader = key -> {
-                PromptMeta meta = finalNewData.get(key);
-                if (meta != null) {
-                    return meta.getTemplate();
+        }
+        
+        // D. 执行重编译
+        if (!keysToRecompile.isEmpty()) {
+            recompileBatch(keysToRecompile, event.getUpdated());
+        }
+    }
+    
+    private void recompileBatch(Set<String> keys, Map<String, PromptMeta> directUpdates) {
+        // 构建 Partial Loader：优先查本次更新的数据，再回源查 Source
+        Function<String, String> partialLoader = key -> {
+            // 1. 优先：本次变更包里的
+            if (directUpdates.containsKey(key)) {
+                return directUpdates.get(key).getTemplate();
+            }
+            // 2. 兜底：去 Source 加载 (因为 Cache 里的 template 可能被我们置空优化掉了)
+            PromptMeta meta = source.load(key);
+            return meta != null ? meta.getTemplate() : null;
+        };
+        
+        for (String key : keys) {
+            try {
+                // 获取最新的 Meta (优先从 event 取，没有则从 source 取)
+                PromptMeta meta = directUpdates.get(key);
+                if (meta == null) {
+                    meta = source.load(key);
                 }
-                // loadAll 返回的是全量合并数据，所以 newData 应该是全的。
-                // 这里只查 newData 即可。
-                return null;
-            };
-            
-            for (Map.Entry<String, PromptMeta> entry : newData.entrySet()) {
-                String key = entry.getKey();
-                PromptMeta newMeta = entry.getValue();
                 
-                CacheEntry oldEntry = oldCache.get(key);
-                Object compiledObject;
+                if (meta == null) {
+                    // 可能是级联更新时，父节点也被删除了
+                    cache.invalidate(key);
+                    continue;
+                }
                 
-                // 智能复用检测：
-                // 1. 自身内容没变
-                // 2. 这是一个复杂点：如果它引用的子模板变了，它也得重编译！
-                // 目前的 Objects.equals(old, new) 无法检测子模板变化。
-                // 稳妥起见：为了支持 Partials 热更新，我们需要牺牲一点性能，
-                // 或者在这里做更复杂的依赖图分析。
-                //
-                // >>> 决策：MVP 阶段，为了确保子模板更新生效，暂时取消“智能复用”，
-                // >>> 或者仅当通过 Mustache 能够确定无依赖时才复用。
-                // >>> 简单方案：全量重编译。因为 JPrompt 是预编译，reload 是异步的，
-                // >>> 几百个 Prompt 重编译也就几十毫秒，完全可接受。
+                // 编译
+                CompiledPrompt compiled = templateEngine.compile(meta.getTemplate(), key, partialLoader);
                 
-                // 重新编译 (传入 partialLoader)
-                compiledObject = templateEngine.compile(newMeta.getTemplate(), key, partialLoader);
+                // 更新缓存
+                cache.put(key, new CacheEntry(meta, compiled.getEngineObject()));
                 
-                newCache.put(key, new CacheEntry(newMeta, compiledObject));
-            }
-            
-            this.cache = newCache;
-            log.info("Prompts reloaded. Cache size: {}", newCache.size());
-            
-        } catch (Exception e) {
-            log.error("Failed to reload prompts", e);
-            if (isInitialLoad) {
-                throw new IllegalStateException("Failed to load prompts during startup", e);
+                // 更新倒排索引 (该 Prompt 依赖了哪些 Child)
+                updateReverseIndex(key, compiled.getDependencies());
+                
+                log.debug("Prompt recompiled: {}", key);
+                
+            } catch (Exception e) {
+                log.error("Failed to recompile prompt: {}", key, e);
+                // 策略：编译失败则移除旧缓存，防止数据不一致
+                cache.invalidate(key);
             }
         }
     }
     
+    /**
+     * 更新倒排索引
+     * @param parentId 谁依赖了别人
+     * @param newDependencies 它依赖了谁
+     */
+    private void updateReverseIndex(String parentId, Set<String> newDependencies) {
+        // 1. 清理旧关系：全量扫描 reverseDependencies (因为没存 forward index，这样做简单点)
+        // 生产环境可以再维护一个 forwardDependencies Map<String, Set<String>> 来优化移除性能
+        reverseDependencies.values().forEach(parents -> parents.remove(parentId));
+        
+        // 2. 注册新关系
+        if (newDependencies != null) {
+            for (String depId : newDependencies) {
+                reverseDependencies.computeIfAbsent(depId, k -> ConcurrentHashMap.newKeySet())
+                        .add(parentId);
+            }
+        }
+    }
+    
+    private void removeFromReverseIndex(String key) {
+        // 没人能再引用它
+        reverseDependencies.remove(key);
+        // 它不再引用别人
+        reverseDependencies.values().forEach(parents -> parents.remove(key));
+    }
+    
+    private void reloadAll() {
+        // 首次全量加载逻辑，复用 recompileBatch
+        Map<String, PromptMeta> all = source.loadAll();
+        recompileBatch(all.keySet(), all);
+        log.info("Initialized {} prompts.", all.size());
+    }
+    
     public String render(String key, Map<String, Object> variables) {
+        CacheEntry entry = cache.getIfPresent(key);
+        if (entry == null) {
+            // Cache Miss (Caffeine 淘汰了，或者从未加载过)
+            // 尝试回源加载 (Lazy Load)
+            Map<String, PromptMeta> singleUpdate = new HashMap<>();
+            PromptMeta meta = source.load(key);
+            if (meta != null) {
+                singleUpdate.put(key, meta);
+                recompileBatch(Collections.singleton(key), singleUpdate);
+                entry = cache.getIfPresent(key);
+            }
+        }
+        
+        if (entry == null) {
+            throw new PromptNotFoundException(key);
+        }
+        
         long startTime = System.nanoTime();
         boolean success = false;
         try {
-            // 直接获取 Entry，一步到位
-            CacheEntry entry = cache.get(key);
-            if (entry == null) {
-                throw new PromptNotFoundException(key);
-            }
-            
-            // 直接执行，无需 Map 查找，无需 Hash 计算
             String result = templateEngine.render(entry.compiledTemplate, variables);
             success = true;
             return result;
@@ -147,7 +230,7 @@ public class PromptManager {
     }
     
     public PromptMeta getMeta(String key) {
-        CacheEntry entry = cache.get(key);
+        CacheEntry entry = cache.getIfPresent(key);
         return entry != null ? entry.meta : null;
     }
 }

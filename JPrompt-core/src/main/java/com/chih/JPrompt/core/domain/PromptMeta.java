@@ -7,6 +7,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 提示词元数据配置类
@@ -218,5 +219,30 @@ public class PromptMeta implements Serializable {
      */
     public boolean isValid() {
         return template != null && !template.trim().isEmpty();
+    }
+    
+    @Override
+    public final boolean equals(Object o) {
+        if (!(o instanceof PromptMeta that)) {
+            return false;
+        }
+        
+        return id.equals(that.id) && Objects.equals(model, that.model) && Objects.equals(temperature, that.temperature)
+                && Objects.equals(maxTokens, that.maxTokens) && Objects.equals(timeout, that.timeout)
+                && template.equals(that.template) && Objects.equals(description, that.description) && Objects.equals(
+                extensions, that.extensions);
+    }
+    
+    @Override
+    public int hashCode() {
+        int result = id.hashCode();
+        result = 31 * result + Objects.hashCode(model);
+        result = 31 * result + Objects.hashCode(temperature);
+        result = 31 * result + Objects.hashCode(maxTokens);
+        result = 31 * result + Objects.hashCode(timeout);
+        result = 31 * result + template.hashCode();
+        result = 31 * result + Objects.hashCode(description);
+        result = 31 * result + Objects.hashCode(extensions);
+        return result;
     }
 }
