@@ -8,8 +8,7 @@ import com.chih.JPrompt.demo.dto.OrderDTO;
 @PromptMapper
 public interface DemoMapper {
     
-    @Prompt("hello")
-    String sayHello(@Param("name") String name);
+    String sayHello(String name);
     
     // 重点：参数是复杂对象
     @Prompt("order_analysis")

@@ -1,5 +1,5 @@
 # 1. 简单测试
-hello:
+sayHello:
   template: "Hello {{name}}, welcome back!"
 
 # 2. 复杂对象测试 (Mustache 语法)

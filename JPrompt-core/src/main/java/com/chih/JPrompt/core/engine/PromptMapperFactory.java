@@ -47,21 +47,33 @@ public class PromptMapperFactory {
                 return method.invoke(this, args);
             }
             
+            // 确定 Prompt Key
+            String promptKey;
             Prompt promptAnno = method.getAnnotation(Prompt.class);
-            if (promptAnno == null) {
-                // 如果没有注解，可以扩展为执行默认逻辑，这里简单返回 null
-                return null;
+            if (promptAnno != null) {
+                promptKey = promptAnno.value();
+            } else {
+                // 默认策略：使用方法名
+                promptKey = method.getName();
             }
             
             // 1. 提取参数
             Map<String, Object> vars = new HashMap<>();
             Parameter[] parameters = method.getParameters();
-            if (parameters != null) {
+            if (parameters != null && args != null) {
                 for (int i = 0; i < parameters.length; i++) {
-                    Param paramAnno = parameters[i].getAnnotation(Param.class);
-                    if (paramAnno != null && args[i] != null) {
-                        vars.put(paramAnno.value(), args[i]);
+                    Parameter param = parameters[i];
+                    String varName;
+                    
+                    Param paramAnno = param.getAnnotation(Param.class);
+                    if (paramAnno != null) {
+                        varName = paramAnno.value();
+                    } else {
+                        // 默认策略：使用参数名
+                        // 注意：需要编译时开启 -parameters 选项，否则得到的是 arg0, arg1
+                        varName = param.getName();
                     }
+                    vars.put(varName, args[i]);
                 }
             }
             
@@ -70,12 +82,12 @@ public class PromptMapperFactory {
             
             // Case A: 返回 String (只返回渲染后的文本)
             if (returnType.equals(String.class)) {
-                return manager.render(promptAnno.value(), vars);
+                return manager.render(promptKey, vars);
             }
             
             // Case B: 返回 PromptMeta (返回完整对象，包含 model 等参数)
             if (returnType.equals(PromptMeta.class)) {
-                PromptMeta original = manager.getMeta(promptAnno.value());
+                PromptMeta original = manager.getMeta(promptKey);
                 if (original == null) {
                     return null;
                 }
@@ -88,7 +100,10 @@ public class PromptMapperFactory {
                 result.setMaxTokens(original.getMaxTokens());
                 result.setTimeout(original.getTimeout());
                 // 关键：将模板渲染为最终文本
-                result.setTemplate(manager.render(promptAnno.value(), vars));
+                result.setTemplate(manager.render(promptKey, vars));
+                if (original.getExtensions() != null) {
+                    original.getExtensions().forEach(result::addExtension);
+                }
                 return result;
             }
             
