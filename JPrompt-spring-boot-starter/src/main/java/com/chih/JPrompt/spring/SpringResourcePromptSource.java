@@ -25,6 +25,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -45,9 +47,11 @@ public class SpringResourcePromptSource implements PromptSource, DisposableBean 
     private static final Logger log = LoggerFactory.getLogger(SpringResourcePromptSource.class);
     
     private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+    
     private final ResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
     
     private final List<String> locations;
+    
     private volatile Runnable callback;
     
     // === 增量更新缓存 ===
@@ -60,18 +64,23 @@ public class SpringResourcePromptSource implements PromptSource, DisposableBean 
     private final DebouncedFileWatcher fileWatcher;
     
     // 正则匹配 FrontMatter: 匹配以 --- 开头，中间是 YAML，以 --- 结尾的块
-    private static final Pattern FRONT_MATTER_PATTERN = Pattern.compile("^---\\s*\\n(.*?)\\n---\\s*\\n(.*)$", Pattern.DOTALL);
+    private static final Pattern FRONT_MATTER_PATTERN = Pattern.compile("^---\\s*\\n(.*?)\\n---\\s*\\n(.*)$",
+            Pattern.DOTALL);
     
-    public SpringResourcePromptSource(List<String> locations, long debounceDelayMs) {
+    public SpringResourcePromptSource(List<String> locations, long debounceDelayMs, ExecutorService watcherExecutor,
+            ScheduledExecutorService debounceExecutor) {
         this.locations = locations;
         
         // 初始化监听器
         // 参数 1: 单个文件变更时 -> 重新加载该文件 (增量更新)
         // 参数 2: 防抖结束后 -> 通知 PromptManager (触发 reload)
+        // 将 Spring 管理的线程池传给 Core 组件
         this.fileWatcher = new DebouncedFileWatcher(
                 this::reloadSingleFile,
                 this::notifyManager,
-                debounceDelayMs
+                debounceDelayMs,
+                watcherExecutor,
+                debounceExecutor
         );
         
         // 1. 首次全量加载
@@ -190,7 +199,8 @@ public class SpringResourcePromptSource implements PromptSource, DisposableBean 
         
         try (InputStream is = resource.getInputStream()) {
             if (filename.endsWith(".yaml") || filename.endsWith(".yml") || filename.endsWith(".json")) {
-                return mapper.readValue(is, new TypeReference<>() {});
+                return mapper.readValue(is, new TypeReference<>() {
+                });
             } else if (filename.endsWith(".md")) {
                 return parseMarkdownStream(is, filename);
             }

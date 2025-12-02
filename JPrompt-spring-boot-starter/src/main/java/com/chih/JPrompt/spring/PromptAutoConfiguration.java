@@ -10,12 +10,18 @@ import com.chih.JPrompt.core.spi.TemplateEngine;
 import com.chih.JPrompt.spring.health.JPromptHealthIndicator;
 import com.chih.JPrompt.spring.metrics.MicrometerPromptMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * Spring Boot 自动配置类
@@ -27,11 +33,36 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties(JPromptProperties.class)
 public class PromptAutoConfiguration {
     
+    // 1. 定义 Watcher 专用线程池 (单线程)
+    @Bean("jPromptWatcherExecutor")
+    public ExecutorService jPromptWatcherExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setThreadNamePrefix("jprompt-watcher-");
+        executor.setDaemon(true);
+        executor.initialize();
+        return executor.getThreadPoolExecutor();
+    }
+    
+    // 2. 定义防抖专用调度器 (单线程)
+    @Bean("jPromptDebounceExecutor")
+    public ScheduledExecutorService jPromptDebounceExecutor() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("jprompt-debouncer-");
+        scheduler.setDaemon(true);
+        scheduler.initialize();
+        return scheduler.getScheduledExecutor();
+    }
+    
     @Bean
     @ConditionalOnMissingBean(PromptSource.class)
-    public PromptSource promptSource(JPromptProperties properties) {
-        // 使用支持 Spring Resource 和热更新的 Source
-        return new SpringResourcePromptSource(properties.getLocations(), properties.getDebounceMillis());
+    public PromptSource promptSource(JPromptProperties properties,
+            @Qualifier("jPromptWatcherExecutor") ExecutorService watcherExecutor,
+            @Qualifier("jPromptDebounceExecutor") ScheduledExecutorService debounceExecutor) {
+        return new SpringResourcePromptSource(properties.getLocations(), properties.getDebounceMillis(),
+                watcherExecutor, debounceExecutor);
     }
     
     @Bean
