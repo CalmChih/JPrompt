@@ -14,14 +14,19 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.JarURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -99,9 +104,83 @@ public class FilePromptSource implements PromptSource {
                     fileWatcher.register(file.getParentFile());
                 }
             }
-            // 2. 如果文件系统不存在，尝试作为 Classpath 资源加载 (只读)
+            // 2. 如果文件系统不存在，尝试作为 Classpath 资源加载 (只读) (Jar Scanning)
             else {
-                loadFromClasspath(pathStr);
+                scanClasspath(pathStr);
+            }
+        }
+    }
+    
+    /**
+     * 核心增强：扫描 Classpath 资源 (支持目录和 JAR)
+     */
+    private void scanClasspath(String path) {
+        // ClassLoader 资源路径不应以 / 开头
+        String cleanPath = path.startsWith("/") ? path.substring(1) : path;
+        
+        try {
+            Enumeration<URL> resources = this.getClass().getClassLoader().getResources(cleanPath);
+            boolean found = false;
+            
+            while (resources.hasMoreElements()) {
+                found = true;
+                URL url = resources.nextElement();
+                String protocol = url.getProtocol();
+                
+                if ("file".equals(protocol)) {
+                    // 场景 A: 开发环境 (资源在 target/classes 目录下)
+                    // 这种情况下其实就是普通文件目录
+                    File file = new File(url.toURI());
+                    if (file.isDirectory()) {
+                        loadDirectory(file);
+                        // 监听 target 目录 (可选，IDE 编译后会触发)
+                        fileWatcher.register(file);
+                    } else {
+                        reloadSingleFile(file);
+                    }
+                } else if ("jar".equals(protocol)) {
+                    // 场景 B: 生产环境 (资源在 JAR 包内)
+                    scanJar(url, cleanPath);
+                }
+            }
+            
+            if (!found) {
+                // 兜底：也许只是一个具体的文件名，且不在 Classpath 根目录？
+                // 尝试作为单文件流加载
+                loadFromClasspath(cleanPath);
+            }
+            
+        } catch (Exception e) {
+            log.error("Failed to scan classpath: {}", path, e);
+        }
+    }
+    
+    /**
+     * 扫描 JAR 包内的资源
+     */
+    private void scanJar(URL url, String rootPath) throws IOException {
+        // URL 格式通常为: jar:file:/path/to/app.jar!/prompts
+        JarURLConnection jarConn = (JarURLConnection) url.openConnection();
+        try (JarFile jarFile = jarConn.getJarFile()) {
+            Enumeration<JarEntry> entries = jarFile.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                String name = entry.getName();
+                
+                // 过滤逻辑：
+                // 1. 必须以 rootPath 开头 (在该目录下)
+                // 2. 不能是目录本身
+                // 3. 必须是支持的文件后缀
+                if (name.startsWith(rootPath) && !entry.isDirectory() && isSupportedFile(name)) {
+                    log.debug("Loading JAR entry: {}", name);
+                    try (InputStream is = jarFile.getInputStream(entry)) {
+                        Map<String, PromptMeta> loaded = parseStream(is, name);
+                        if (loaded != null && !loaded.isEmpty()) {
+                            loaded.values().forEach(PromptMeta::validate);
+                            resourceCache.put("classpath:" + name, loaded);
+                        }
+                    }
+                }
             }
         }
     }
