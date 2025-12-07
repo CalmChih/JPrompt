@@ -4,7 +4,7 @@
     xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.chih.JPrompt</groupId>
+        <groupId>io.github.calmchih</groupId>
         <artifactId>JPrompt</artifactId>
         <version>1.0.0</version>
     </parent>
@@ -17,7 +17,7 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.chih.JPrompt</groupId>
+            <groupId>io.github.calmchih</groupId>
             <artifactId>JPrompt-spring-boot-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -28,6 +28,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
     <build>

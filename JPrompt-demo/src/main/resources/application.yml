@@ -1,19 +1,54 @@
-j-prompt:
-  locations:
-    - "classpath*:prompts/**/*.yaml"
-    - "classpath*:prompts/**/*.md"
-    - "file:./prompts/*.yaml"
+# JPrompt Demo 应用配置
 
-# Actuator 配置
+server:
+  port: 8080
+
+spring:
+  application:
+    name: jprompt-demo
+
+# JPrompt 框架配置
+jprompt:
+  # 提示词资源位置配置
+  locations:
+    - classpath:/prompts/          # 从类路径加载
+    - file:./custom-prompts/       # 从外部目录加载（支持热更新）
+
+  # 文件监听防抖延迟（毫秒）
+  debounce-millis: 1000
+
+  # 调试模式：开启后显示详细的加载日志
+  debug: true
+
+# Spring Boot Actuator 监控配置
 management:
   endpoints:
     web:
       exposure:
-        include: "metrics,health" # 暴露 /actuator/metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: always
+  health:
+    jprompt:
+      enabled: true
   metrics:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+
+# 日志配置
+logging:
+  level:
+    com.chih.JPrompt: DEBUG
+    org.springframework: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# 应用信息
+info:
+  app:
+    name: JPrompt Demo
+    version: 1.0.0
+    description: JPrompt框架使用演示
+    author: JPrompt Team

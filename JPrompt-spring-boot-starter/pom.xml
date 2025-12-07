@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     
     <parent>
-        <groupId>com.chih.JPrompt</groupId>
+        <groupId>io.github.calmchih</groupId>
         <artifactId>JPrompt</artifactId>
         <version>1.0.0</version>
     </parent>
@@ -16,7 +16,7 @@
     
     <dependencies>
         <dependency>
-            <groupId>com.chih.JPrompt</groupId>
+            <groupId>io.github.calmchih</groupId>
             <artifactId>JPrompt-core</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -64,7 +64,12 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
-    
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
 </project>

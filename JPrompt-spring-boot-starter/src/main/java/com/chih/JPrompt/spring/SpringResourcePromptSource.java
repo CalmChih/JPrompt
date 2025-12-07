@@ -1,12 +1,7 @@
 package com.chih.JPrompt.spring;
 
-import com.chih.JPrompt.core.domain.PromptMeta;
-import com.chih.JPrompt.core.spi.PromptChangeEvent;
-import com.chih.JPrompt.core.spi.PromptSource;
-import com.chih.JPrompt.core.support.DebouncedFileWatcher;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import com.chih.JPrompt.core.spi.AbstractIndexBasedPromptSource;
+import com.chih.JPrompt.core.support.PromptParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -14,313 +9,233 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
-import org.springframework.util.StreamUtils;
 import org.springframework.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.function.Consumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * 基于 Spring Resource 的 Prompt 源 (生产级实现)
+ * 基于 Spring Resource 的 Prompt 源（重构版）。
  * <p>
- * 特性：
- * 1. 支持 classpath 和 file 协议的混合扫描
- * 2. 集成 NIO WatchService 实现高性能文件监听
- * 3. 实现 Debounce (防抖) 机制，防止编辑器保存时的事件抖动导致重复重载
- * 4. 实现 DisposableBean，确保应用退出时资源释放
+ * 集成 Spring Resource 抽象层，提供企业级的 Prompt 资源管理能力。
+ * 通过继承 AbstractIndexBasedPromptSource，获得了 Index-Only 模式和热更新功能。
  * </p>
  *
+ * <h3>核心特性：</h3>
+ * <ul>
+ *   <li><strong>Spring 生态集成</strong>：完全兼容 Spring Resource 抽象</li>
+ *   <li><strong>通配符支持</strong>：支持 classpath 通配符和 ant-style 路径模式</li>
+ *   <li><strong>协议无关</strong>：统一处理 file:、classpath:、jar: 等协议</li>
+ *   <li><strong>Index-Only 模式</strong>：零 OOM 风险的高性能索引架构</li>
+ *   <li><strong>热更新支持</strong>：自动检测文件变更并增量更新</li>
+ *   <li><strong>生命周期管理</strong>：实现 DisposableBean，确保资源正确释放</li>
+ * </ul>
+ *
+ * <h3>支持的位置模式：</h3>
+ * <ul>
+ *   <li>Classpath 资源（包括所有 jar 包）：classpath:/prompts/*.yaml</li>
+ *   <li>文件系统资源：file:/opt/app/prompts/*.yml</li>
+ *   <li>相对路径：<code>prompts/</code></li>
+ *   <li>混合模式：<code>classpath:/default-prompts/,file:/custom-prompts/</code></li>
+ * </ul>
+ *
+ * <h3>使用场景：</h3>
+ * <ul>
+ *   <li><strong>微服务应用</strong>：统一的 Prompt 资源管理</li>
+ *   <li><strong>容器化部署</strong>：支持外部配置卷挂载</li>
+ *   <li><strong>多环境配置</strong>：通过 Spring Profile 区分环境</li>
+ *   <li><strong>企业集成</strong>：与 Spring Config、Cloud Config 等集成</li>
+ * </ul>
+ *
  * @author lizhiyuan
+ * @see org.springframework.core.io.Resource
+ * @see AbstractIndexBasedPromptSource
  */
-public class SpringResourcePromptSource implements PromptSource, DisposableBean {
-    
+public class SpringResourcePromptSource extends AbstractIndexBasedPromptSource<Resource>
+        implements DisposableBean {
+
     private static final Logger log = LoggerFactory.getLogger(SpringResourcePromptSource.class);
-    
-    private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-    
+
+    /**
+     * Spring 资源模式解析器
+     * <p>
+     * 使用 PathMatchingResourcePatternResolver 支持：
+     * 1. Ant-style 路径模式：双星号匹配任意层级路径
+     * 2. classpath*: 前缀：扫描所有 jar 包中的资源
+     * 3. file: 协议：访问文件系统资源
+     * </p>
+     */
     private final ResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-    
+
+    /**
+     * 资源位置配置列表
+     * <p>
+     * 存储用户配置的资源位置模式，支持多种协议和路径格式。
+     * 列表在构造时确定，运行时不可变，确保线程安全。
+     * </p>
+     */
     private final List<String> locations;
-    
-    // 记录加载失败的文件及其异常 (FileName -> Exception)
-    private final Map<String, Throwable> loadErrors = new ConcurrentHashMap<>();
-    
-    private final DebouncedFileWatcher fileWatcher;
-    
-    // 事件监听器
-    private volatile Consumer<PromptChangeEvent> changeListener;
-    
-    // === 索引层 (只存位置，不存内容) ===
-    // 1. 正向索引：Prompt Key -> Resource (用于 load)
-    private final Map<String, Resource> keyToIndex = new ConcurrentHashMap<>();
-    // 2. 反向索引：Resource Path -> Set<Prompt Key> (用于计算删除)
-    private final Map<String, Set<String>> fileToKeys = new ConcurrentHashMap<>();
-    
-    // 线程安全的暂存区 (Accumulator)
-    private final Map<String, PromptMeta> pendingUpdates = new ConcurrentHashMap<>();
-    private final Set<String> pendingRemoves = ConcurrentHashMap.newKeySet();
-    
-    // 正则匹配 FrontMatter: 匹配以 --- 开头，中间是 YAML，以 --- 结尾的块
-    private static final Pattern FRONT_MATTER_PATTERN = Pattern.compile("^---\\s*\\n(.*?)\\n---\\s*\\n(.*)$",
-            Pattern.DOTALL);
-    
-    public SpringResourcePromptSource(List<String> locations, long debounceDelayMs, ExecutorService watcherExecutor,
-            ScheduledExecutorService debounceExecutor) {
-        this.locations = locations;
-        
-        // 初始化监听器
-        // 参数 1: 单个文件变更时 -> 重新加载该文件 (增量更新)
-        // 参数 2: 防抖结束后 -> 通知 PromptManager (触发 reload)
-        // 将 Spring 管理的线程池传给 Core 组件
-        this.fileWatcher = new DebouncedFileWatcher(
-                this::reloadSingleFile,
-                this::notifyManager,
-                debounceDelayMs,
-                watcherExecutor,
-                debounceExecutor
-        );
-        
-        // 1. 首次全量加载
+
+    /**
+     * 构造函数（完整配置版本）
+     *
+     * 创建 SpringResourcePromptSource 实例，提供完整的配置选项。
+     * 适合生产环境使用，支持自定义线程池和防抖配置。
+     *
+     * @param locations 资源位置列表，支持 Spring Resource 路径模式
+     * @param debounceDelayMs 防抖延迟时间（毫秒），建议 500-2000ms
+     * @param watcherExecutor 文件监听线程池（可选）
+     * @param debounceExecutor 防抖定时器线程池（可选）
+     */
+    public SpringResourcePromptSource(List<String> locations, long debounceDelayMs,
+                                    ExecutorService watcherExecutor, ScheduledExecutorService debounceExecutor) {
+        super(debounceDelayMs, watcherExecutor, debounceExecutor);
+
+        /* 保存位置配置的不可变副本 */
+        this.locations = new ArrayList<>(locations);
+
+        /* 1. 首次全量加载：扫描所有位置并建立索引 */
         initialLoad();
-        // 2. 启动监听
-        this.fileWatcher.start();
+
+        /* 2. 启动文件监听：开启热更新支持 */
+        startWatcher();
     }
-    
+
     /**
      * 首次加载：扫描所有路径并填充缓存
      */
     private void initialLoad() {
+        /* 用于避免重复注册同一个目录 */
+        Set<File> watchedDirectories = new HashSet<>();
+
         for (String location : locations) {
             if (!StringUtils.hasText(location)) {
                 continue;
             }
+
             try {
+                /* 支持通配符模式 */
                 Resource[] resources = resolver.getResources(location);
                 for (Resource resource : resources) {
-                    refreshIndex(resource, false);
+                    if (isPromptResource(resource)) {
+                        loadResource(resource);
+
+                        /* 注册文件监听器（只对文件系统资源） */
+                        try {
+                            if (isFileResource(resource)) {
+                                File parentFile = resource.getFile().getParentFile();
+                                if (parentFile != null && watchedDirectories.add(parentFile)) {
+                                    fileWatcher.register(parentFile);
+                                    logWatcherRegistered(parentFile.getAbsolutePath());
+                                }
+                            }
+                        } catch (IOException e) {
+                            logWatcherRegistrationFailure(resource.getDescription(), e);
+                        }
+                    }
                 }
             } catch (IOException e) {
-                log.warn("Failed to scan prompt location: {}", location);
+                logResourceScanFailure(location, e);
             }
         }
     }
-    
+
     /**
-     * 单文件处理：解析 -> 更新索引 -> 放入暂存区
+     * 加载单个资源
      */
-    private void reloadSingleFile(File file) {
-        if (isValidPromptFile(file.getName())) {
-            refreshIndex(new FileSystemResource(file), true);
-        }
+    private void loadResource(Resource resource) {
+        safeLoadResource(resource);
     }
-    
-    private void refreshIndex(Resource resource, boolean isIncremental) {
-        String resourceKey = getResourceCacheKey(resource);
-        
-        // A. 处理文件删除
-        if (!resource.exists()) {
-            Set<String> removedKeys = fileToKeys.remove(resourceKey);
-            if (removedKeys != null) {
-                removedKeys.forEach(keyToIndex::remove);
-                if (isIncremental) {
-                    pendingRemoves.addAll(removedKeys);
-                    // 如果同时在 updates 里，说明是反复修改最后删了，要移除 update
-                    removedKeys.forEach(pendingUpdates::remove);
-                }
-            }
-            // 文件没了，对应的错误记录也应该清除
-            loadErrors.remove(resourceKey);
-            return;
-        }
-        
-        // B. 解析文件 (瞬时内存)
-        Map<String, PromptMeta> newPrompts;
-        try {
-            newPrompts = parseResource(resource);
-            loadErrors.remove(resourceKey);
-        } catch (Exception e) {
-            log.error("Failed to parse resource: {}", resourceKey, e);
-            loadErrors.put(resourceKey, e);
-            return;
-        }
-        
-        // C. 更新索引 & 计算变更
-        Set<String> oldKeys = fileToKeys.getOrDefault(resourceKey, Collections.emptySet());
-        Set<String> currentKeys = new HashSet<>(newPrompts.keySet());
-        
-        // C1. 更新反向索引
-        fileToKeys.put(resourceKey, currentKeys);
-        
-        // C2. 更新正向索引 & 填充暂存区
-        for (Map.Entry<String, PromptMeta> entry : newPrompts.entrySet()) {
-            String key = entry.getKey();
-            keyToIndex.put(key, resource);
-            
-            if (isIncremental) {
-                // 将最新内容放入暂存区
-                pendingUpdates.put(key, entry.getValue());
-                pendingRemoves.remove(key);
-            }
-        }
-        
-        // C3. 处理该文件中消失的 Key (逻辑删除)
-        for (String oldKey : oldKeys) {
-            if (!currentKeys.contains(oldKey)) {
-                keyToIndex.remove(oldKey);
-                if (isIncremental) {
-                    pendingRemoves.add(oldKey);
-                    pendingUpdates.remove(oldKey);
-                }
-            }
-        }
-        
-        // 注册 Watcher (如果是新目录)
-        try {
-            if (isFileResource(resource)) {
-                fileWatcher.register(resource.getFile().getParentFile());
-            }
-        } catch (IOException ignored) {}
-    }
-    
-    // 覆盖 load 方法，提供高效查找
-    @Override
-    public PromptMeta load(String key) {
-        // Cache Miss 回源：查索引 -> 读文件 -> 解析 -> 返回
-        Resource resource = keyToIndex.get(key);
-        if (resource == null) {
-            return null;
-        }
-        try {
-            // 这里虽有 IO，但只会解析一个文件，且仅在 Cache Miss 时发生
-            return parseResource(resource).get(key);
-        } catch (Exception e) {
-            log.error("Failed to load prompt: {}", key, e);
-            return null;
-        }
-    }
-    
-    private void notifyManager() {
-        if (changeListener == null) {
-            return;
-        }
-        
-        // 原子快照 (虽然是简单场景，但为了安全)
-        Map<String, PromptMeta> updatesSnapshot;
-        Set<String> removesSnapshot;
-        
-        synchronized (this) {
-            if (pendingUpdates.isEmpty() && pendingRemoves.isEmpty()) {
-                return;
-            }
-            
-            updatesSnapshot = new HashMap<>(pendingUpdates);
-            removesSnapshot = new HashSet<>(pendingRemoves);
-            
-            pendingUpdates.clear();
-            pendingRemoves.clear();
-        }
-        
-        log.info("Debounce finished. Pushing batch updates: {} updated, {} removed.",
-                updatesSnapshot.size(), removesSnapshot.size());
-        
-        changeListener.accept(new PromptChangeEvent(updatesSnapshot, removesSnapshot));
-    }
-    
-    private boolean isValidPromptFile(String name) {
-        return name.endsWith(".yaml") || name.endsWith(".yml") || name.endsWith(".json") || name.endsWith(".md");
-    }
-    
+
     /**
-     * 获取所有 Prompts
+     * 判断是否为 Prompt 资源
      */
+    private boolean isPromptResource(Resource resource) {
+        try {
+            if (resource == null) {
+                return false;
+            }
+
+            String filename = resource.getFilename();
+            if (filename == null) {
+                return false;
+            }
+
+            return PromptParser.isSupportedFile(filename);
+        } catch (Exception e) {
+            log.warn("Failed to determine if resource is a prompt resource: {}", resource.getDescription(), e);
+            return false;
+        }
+    }
+
+    // === 实现抽象方法 ===
+
     @Override
-    public Map<String, PromptMeta> loadAll() {
-        // 这一步虽然有 IO 开销，但只在 Manager 启动/全量重置时调用一次，是安全的。
-        Map<String, PromptMeta> all = new HashMap<>();
-        
-        // 使用 Set 去重，避免同一个 FileSystemResource 被多次解析 (如果有多个 key 指向同一个 resource 对象)
-        Set<Resource> uniqueResources = new HashSet<>(keyToIndex.values());
-        
-        for (Resource resource : uniqueResources) {
-            try {
-                all.putAll(parseResource(resource));
-            } catch (Exception e) {
-                // refreshIndex 阶段已经记录过 Log 和 loadErrors 了，这里忽略即可
-            }
-        }
-        return all;
+    protected InputStream openStream(Resource resource) throws Exception {
+        return resource.getInputStream();
     }
-    
-    // === 解析逻辑 ===
-    
-    private Map<String, PromptMeta> parseResource(Resource resource) throws IOException {
-        String filename = resource.getFilename();
-        if (filename == null) {
-            return Collections.emptyMap();
-        }
-        
-        try (InputStream is = resource.getInputStream()) {
-            if (filename.endsWith(".yaml") || filename.endsWith(".yml") || filename.endsWith(".json")) {
-                return mapper.readValue(is, new TypeReference<>() {
-                });
-            } else if (filename.endsWith(".md")) {
-                return parseMarkdownStream(is, filename);
-            }
-        }
-        return Collections.emptyMap();
+
+    @Override
+    protected String getResourceId(Resource resource) {
+        return getResourceCacheKey(resource);
     }
-    
-    private Map<String, PromptMeta> parseMarkdownStream(InputStream is, String filename) throws IOException {
-        String content = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
-        
-        // 稳定性治理：移除 UTF-8 BOM 头 (\uFEFF)
-        if (content.startsWith("\uFEFF")) {
-            content = content.substring(1);
+
+    @Override
+    protected boolean exists(Resource resource) {
+        try {
+            return resource.exists();
+        } catch (Exception e) {
+            log.warn("Failed to check resource existence: {}", resource.getDescription(), e);
+            return false;
         }
-        
-        // 统一换行符
-        content = content.replace("\r\n", "\n");
-        
-        PromptMeta meta = new PromptMeta();
-        String templateBody = content;
-        
-        Matcher matcher = FRONT_MATTER_PATTERN.matcher(content);
-        if (matcher.find()) {
-            String yamlPart = matcher.group(1);
-            templateBody = matcher.group(2).trim();
-            if (StringUtils.hasText(yamlPart)) {
-                meta = mapper.readValue(yamlPart, PromptMeta.class);
-            }
-        }
-        
-        meta.setTemplate(templateBody);
-        
-        // ID 兜底策略
-        if (!StringUtils.hasText(meta.getId())) {
-            if (filename != null && filename.contains(".")) {
-                meta.setId(filename.substring(0, filename.lastIndexOf('.')));
-            }
-        }
-        
-        return Collections.singletonMap(meta.getId(), meta);
     }
-    
+
+    @Override
+    protected Resource resolveResourceFromFile(File file) {
+        // 将 File 转换为 Spring Resource
+        return new FileSystemResource(file);
+    }
+
+    @Override
+    protected String getResourceDescription(Resource resource) {
+        return resource.getDescription();
+    }
+
+    @Override
+    protected String getResourceFilename(Resource resource) {
+        try {
+            // Spring Resource 提供了直接的 getFilename() 方法
+            String filename = resource.getFilename();
+            if (filename != null) {
+                return filename;
+            }
+
+            // 如果 getFilename() 返回 null，尝试从 URI 中提取
+            String uri = resource.getURI().toString();
+            int lastSlash = uri.lastIndexOf('/');
+            return lastSlash >= 0 ? uri.substring(lastSlash + 1) : uri;
+        } catch (Exception e) {
+            // 备用方案：使用描述
+            String description = resource.getDescription();
+            int lastSlash = Math.max(description.lastIndexOf('/'), description.lastIndexOf('\\'));
+            return lastSlash >= 0 ? description.substring(lastSlash + 1) : description;
+        }
+    }
+
+    // getCurrentResource 方法已在基类中实现，使用统一的 resourceCache
+
     // === 辅助方法 ===
-    
+
+    /**
+     * 获取资源缓存键
+     */
     private String getResourceCacheKey(Resource resource) {
         try {
             if (isFileResource(resource)) {
@@ -331,7 +246,10 @@ public class SpringResourcePromptSource implements PromptSource, DisposableBean 
             return resource.getDescription();
         }
     }
-    
+
+    /**
+     * 判断是否为文件资源
+     */
     private boolean isFileResource(Resource resource) {
         try {
             return resource.isFile() || "file".equals(resource.getURL().getProtocol());
@@ -339,29 +257,16 @@ public class SpringResourcePromptSource implements PromptSource, DisposableBean 
             return false;
         }
     }
+
     
-    /**
-     * 获取当前的错误列表 (供 HealthIndicator 使用)
-     */
-    public Map<String, Throwable> getLoadErrors() {
-        return Collections.unmodifiableMap(loadErrors);
-    }
-    
-    @Override
-    public void onChange(Consumer<PromptChangeEvent> listener) {
-        this.changeListener = listener;
-    }
-    
-    /**
-     * 销毁资源 (Spring 容器关闭时调用)
-     */
+    // === DisposableBean 实现 ===
+
     @Override
     public void destroy() {
-        fileWatcher.close(); // 优雅关闭
-    }
-    
-    @Override
-    public void close() {
-        destroy();
+        try {
+            close();
+        } catch (Exception e) {
+            log.error("Failed to destroy SpringResourcePromptSource", e);
+        }
     }
 }

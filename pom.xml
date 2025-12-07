@@ -4,10 +4,16 @@
     xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     
-    <groupId>com.chih.JPrompt</groupId>
+    <groupId>io.github.calmchih</groupId>
     <artifactId>JPrompt</artifactId>
     <version>1.0.0</version>
     <packaging>pom</packaging>
+    
+    <name>JPrompt</name>
+    <description>
+        The MyBatis for LLM Prompts - A production-grade Prompt management framework for Java/Spring developers
+    </description>
+    <url>https://github.com/CalmChih/JPrompt</url>
     
     <modules>
         <module>JPrompt-core</module>
@@ -31,6 +37,28 @@
         <caffeine.version>3.2.3</caffeine.version>
     </properties>
     
+    <licenses>
+        <license>
+            <name>The Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+    
+    <scm>
+        <connection>scm:git:git://github.com/CalmChih/JPrompt.git</connection>
+        <developerConnection>scm:git:ssh://github.com:CalmChih/JPrompt.git</developerConnection>
+        <url>https://github.com/CalmChih/JPrompt/tree/master</url>
+    </scm>
+    
+    <developers>
+        <developer>
+            <name>CalmChih</name>
+            <email>fallingintodreams@163.com</email>
+            <organization>JPrompt</organization>
+            <organizationUrl>https://github.com/CalmChih</organizationUrl>
+        </developer>
+    </developers>
+    
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -41,6 +69,11 @@
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.datatype</groupId>
+                <artifactId>jackson-datatype-jsr310</artifactId>
                 <version>${jackson.version}</version>
             </dependency>
             <dependency>
@@ -66,6 +99,12 @@
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
                 <artifactId>junit-jupiter-api</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-engine</artifactId>
                 <version>${junit.version}</version>
                 <scope>test</scope>
             </dependency>
@@ -137,10 +176,34 @@
                         <configuration>
                             <encoding>UTF-8</encoding>
                             <charset>UTF-8</charset>
-                            <doclint>none</doclint> </configuration>
+                            <doclint>none</doclint>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0</version>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.9.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>true</autoPublish>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
+    
 </project>

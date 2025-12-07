@@ -32,3 +32,32 @@ chat_with_header:
   template: |
     {{> common_header}}
     User: {{input}}
+
+# 代码审查 Prompt
+code_review:
+  model: gpt-4
+  template: |
+    # Code Review Analysis
+
+    **Code Snippet:**
+    ```java
+    {{code}}
+    ```
+
+    **Review Focus:**
+    1. 潜在的内存泄漏风险
+    2. 线程安全问题
+    3. 性能优化建议
+    4. 最佳实践建议
+
+    **Analysis:**
+    {{#code}}
+    - 检测到静态Map作为缓存，可能导致内存泄漏
+    - 缺乏大小限制和清理机制
+    - 建议使用Caffeine或Guava Cache替代
+    {{/code}}
+
+    **Recommendations:**
+    - 使用专业缓存库替换静态集合
+    - 添加TTL或LRU淘汰策略
+    - 考虑使用WeakReference避免内存泄漏

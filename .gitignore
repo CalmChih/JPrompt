@@ -4,3 +4,29 @@
 *.iml
 **/target/
 .DS_Store
+/.spec-workflow/
+/.bmad-core/
+/.claude/
+**/CLAUDE.md
+
+# 安全配置 - 永远不要提交敏感信息
+settings.xml
+maven-settings.xml
+*.key
+*.pem
+*.p12
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+
+# 日志文件
+*.log
+*.out
+
+# 临时文件
+*.tmp
+*.temp
+.cache/
+/.vscode/
