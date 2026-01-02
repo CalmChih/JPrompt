@@ -11,6 +11,8 @@
     
     <artifactId>JPrompt-core</artifactId>
     
+    <name>JPrompt-core</name>
+    
     <packaging>jar</packaging>
     
     <dependencies>

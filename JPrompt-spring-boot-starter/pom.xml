@@ -12,6 +12,8 @@
     
     <artifactId>JPrompt-spring-boot-starter</artifactId>
     
+    <name>JPrompt-spring-boot-starter</name>
+    
     <packaging>jar</packaging>
     
     <dependencies>
