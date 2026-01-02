@@ -8,6 +8,7 @@
 [![Java](https://img.shields.io/badge/Java-17%2B-orange.svg)]()
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)]()
+[![Maven Central](https://img.shields.io/badge/maven%20central-1.0.0-brightgreen)](https://central.sonatype.com/artifact/io.github.calmchih/JPrompt-spring-boot-starter)
 
 **JPrompt** 是一个专为 Java/Spring 开发者设计的生产级 Prompt（提示词）管理框架。它旨在解决 Prompt 硬编码在 Java 字符串中难以维护、无法版本控制、无法热更新的痛点。
 
@@ -63,11 +64,13 @@
 
 ```xml
 <dependency>
-    <groupId>com.chih.JPrompt</groupId>
+    <groupId>io.github.calmchih</groupId>
     <artifactId>JPrompt-spring-boot-starter</artifactId>
     <version>1.0.0</version>
 </dependency>
 ```
+
+💡 **提示**：JPrompt 已发布至 [Maven Central](https://central.sonatype.com/artifact/io.github.calmchih/JPrompt-spring-boot-starter)，可直接使用最新版本。
 
 ---
 
@@ -118,11 +121,16 @@ Please review the following code:
 @PromptMapper
 public interface MyAiMapper {
 
-    @Prompt("hello_user")
-    String sayHello(@Param("name") String name);
+    // 方法名与模板 key 一致时，可省略 @Prompt 注解
+    String sayHello(String name);
 
+    // 参数名与模板变量一致时，可省略 @Param 注解
     @Prompt("code_review")
-    String reviewCode(@Param("code") String code);
+    String reviewCode(String code);
+
+    // 也可以显式指定参数名（当参数名与模板变量不一致时）
+    @Prompt("hello_user")
+    String greet(@Param("userName") String name);
 }
 ```
 
@@ -241,7 +249,7 @@ public class CustomPromptMetrics implements PromptMetrics {
 
 ---
 
-## 📝 项目状态 (Project Status)
+## 📝 项目状态 (Project Status) - v1.0.0 已发布
 
 ### ✅ 已完成功能 (v1.0.0)
 - [x] **核心架构**：SPI 核心架构与并发安全设计
@@ -255,13 +263,13 @@ public class CustomPromptMetrics implements PromptMetrics {
 - [x] **测试覆盖**：核心单元测试与集成测试 (并发性能测试)
 - [x] **异常体系**：完善的异常处理和错误恢复机制
 - [x] **演示项目**：完整的 Demo 应用和 REST API 示例
+- [x] **Maven Central发布**：已发布至 Maven Central Repository (v1.0.0)
 
 ### 🚧 进行中 (In Progress)
 - [ ] **文档完善**：API 文档和最佳实践指南
 - [ ] **性能基准测试**：详细的性能测试报告
 
 ### 📋 计划功能 (Roadmap)
-- [ ] **发布准备**：发布至 Maven Central Repository
 - [ ] **模板引擎扩展**：Freemarker、Velocity 等更多模板引擎支持
 - [ ] **配置中心集成**：Nacos、Apollo 配置中心支持适配器
 - [ ] **管理界面**：Web 管理控制台，支持在线编辑和预览
@@ -278,10 +286,13 @@ public class CustomPromptMetrics implements PromptMetrics {
 
 ## 🚀 快速体验 (Quick Demo)
 
-### 运行演示项目
+### 方式一：直接使用（推荐）
+在你的项目中添加上述 Maven 依赖即可，JPrompt 已发布至 Maven Central。
+
+### 方式二：运行演示项目
 ```bash
 # 克隆项目
-git clone https://github.com/your-repo/JPrompt.git
+git clone https://github.com/CalmChih/JPrompt.git
 cd JPrompt
 
 # 构建项目
@@ -291,10 +302,9 @@ mvn clean install
 mvn spring-boot:run -pl JPrompt-demo
 ```
 
-### 访问接口
-应用启动后，可以通过以下方式体验：
+### 使用方式
+应用启动后，可以通过编程方式体验 JPrompt 功能：
 
-**编程方式**：
 ```java
 @Autowired
 private DemoMapper mapper;
@@ -306,30 +316,17 @@ String greeting = mapper.sayHello("World");  // Hello World!
 OrderDTO order = new OrderDTO();
 // ... 设置订单信息
 String analysis = mapper.analyzeOrder(order);
+
+// 代码审查
+String review = mapper.reviewCode("public static Map cache = new HashMap();");
 ```
 
-**REST API**：
-```bash
-# 问候接口
-curl "http://localhost:8080/api/prompts/greet?name=JPrompt"
+### 热更新测试
+1. 运行演示应用后，在代码中调用 `mapper.sayHello("Test")`
+2. 修改 `JPrompt-demo/src/main/resources/prompts/prompts.yaml` 中 `sayHello` 的 `template` 内容
+3. 再次调用方法，观察返回结果变化（无需重启应用）
 
-# 订单分析
-curl -X POST http://localhost:8080/api/prompts/analyze-order \
-  -H "Content-Type: application/json" \
-  -d '{"id":"ORD-001","user":{"name":"John"}}'
-
-# 代码审查
-curl -X POST http://localhost:8080/api/prompts/review-code \
-  -H "Content-Type: application/json" \
-  -d '{"code":"public static Map cache = new HashMap();"}'
-```
-
-**热更新测试**：
-1. 访问 `http://localhost:8080/api/prompts/greet?name=Test`
-2. 修改 `JPrompt-demo/src/main/resources/prompts/prompts.yaml` 中的 `sayHello` 模板
-3. 再次访问接口，观察返回结果变化（无需重启应用）
-
-**监控端点**：
+### 监控端点
 - 健康检查：http://localhost:8080/actuator/health
 - 应用信息：http://localhost:8080/actuator/info
 - 监控指标：http://localhost:8080/actuator/metrics
