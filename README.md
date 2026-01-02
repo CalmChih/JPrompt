@@ -333,9 +333,11 @@ String review = mapper.reviewCode("public static Map cache = new HashMap();");
 
 ## 📚 文档导航 (Documentation)
 
-- **[Demo 模块文档](JPrompt-demo/README.md)** - 详细的使用示例和 API 说明
-- **[核心模块文档](JPrompt-core/CLAUDE.md)** - 核心架构和 API 文档
-- **[Spring Boot 集成文档](JPrompt-spring-boot-starter/CLAUDE.md)** - 自动配置和扩展指南
+- **[API 参考文档](docs/api.md)** - 详细的 API 接口说明和示例代码
+- **[开发者指南](docs/developer-guide.md)** - 开发环境设置、构建流程和贡献指南
+- **[扩展开发指南](docs/extension-guide.md)** - SPI 扩展开发和自定义实现
+- **[配置参考手册](docs/configuration.md)** - 完整的配置参数说明和最佳实践
+- **[Demo 模块文档](JPrompt-demo/README.md)** - 详细的使用示例和 REST API 说明
 
 ## 🤝 贡献指南 (Contributing)
 

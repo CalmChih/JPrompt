@@ -20,7 +20,7 @@ import java.lang.annotation.Target;
  *   <li><strong>自动代理生成</strong>：运行时动态创建接口实现</li>
  *   <li><strong>Spring 集成</strong>：支持依赖注入和 AOP</li>
  *   <li><strong>类型安全</strong>：编译时检查方法签名和参数</li>
- *   <li><strong>零配置</strong>：默认使用 prompts.yaml 文件</li>
+ *   <li><strong>统一配置</strong>：所有 Mapper 共享全局配置的 Prompt 源</li>
  * </ul>
  *
  * <h3>使用示例：</h3>
@@ -51,13 +51,13 @@ import java.lang.annotation.Target;
  *
  * <h3>文件配置：</h3>
  * <p>
- * 默认会在类路径下查找 prompts.yaml 文件，也可以通过 {@code file} 属性指定：
+ * Prompt 文件位置通过 {@code application.yml} 统一配置：
  * </p>
  * <pre>{@code
- * @PromptMapper(file = "custom-prompts.yaml")
- * public interface CustomPromptMapper {
- *     // ...
- * }
+ * j-prompt:
+ *   locations:
+ *     - "classpath*:prompts/**/*.yaml"
+ *     - "file:./config/prompts/*.yaml"
  * }</pre>
  *
  * @author lizhiyuan
@@ -70,21 +70,6 @@ import java.lang.annotation.Target;
 @Documented
 @Component
 public @interface PromptMapper {
-    /**
-     * 指定加载的 Prompt 文件名。
-     * <p>
-     * 相对于类路径的文件路径，支持 YAML 和 JSON 格式。
-     * 默认值为 "prompts.yaml"，即从类路径根目录加载 prompts.yaml 文件。
-     * </p>
-     *
-     * <h3>支持格式：</h3>
-     * <ul>
-     *   <li>单个文件：{@code "custom.yaml"}</li>
-     *   <li>子目录：{@code "chat/prompts.yml"}</li>
-     *   <li>JSON 格式：{@code "prompts.json"}</li>
-     * </ul>
-     *
-     * @return Prompt 配置文件路径，默认为 "prompts.yaml"
-     */
-    String file() default "prompts.yaml";
+    // 无属性，仅作为标记注解使用
+    // Prompt 文件位置通过 application.yml 统一配置
 }
