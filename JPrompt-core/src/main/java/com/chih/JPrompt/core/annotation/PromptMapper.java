@@ -53,10 +53,10 @@ import java.lang.annotation.Target;
  * <p>
  * Prompt 文件位置通过 {@code application.yml} 统一配置：
  * </p>
- * <pre>{@code
+ * <pre>
  * j-prompt:
  *   locations:
- *     - "classpath*:prompts/**/*.yaml"
+ *     - "classpath*:prompts&#47;**&#47;*.yaml"
  *     - "file:./config/prompts/*.yaml"
  * }</pre>
  *
